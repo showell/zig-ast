@@ -8,8 +8,12 @@ arguments, reads the files, sends them here, and acts on the answer: the
 values, the stops, the step charges, and the edits, which it writes through
 its own `edit`. zig-ast writes no file.
 
-This folder is self-contained. Nothing in it reaches outside it; its one
-outside dependency is zig-webbox (its `src/zig_refs.zig` reads a file's
+[Shale](https://github.com/showell/shale) is a small scripting language
+for working on code; zig-ast grew up inside its repo and moved here on
+2026-11-18. Its earlier history is there (`git log --follow` on Shale's
+`legacy_zig/src/shale_zig_wire.zig` and the old `tools/zig_ast/`).
+
+This repository is self-contained. Its one outside dependency is zig-webbox (its `src/zig_refs.zig` reads a file's
 `@import`s), pinned in `build.zig.zon`.
 
 ## What is here
@@ -67,8 +71,7 @@ corpus of real Zig, read whole: this folder's own files and zig-webbox's
 `src/`. A rename there and back, or a move there and back, must give the
 file it began with, and the two must agree on what is a use.
 
-`shale install.shale` (from this folder, or `shale
-tools/zig_ast/install.shale` from Shale's root) builds it with the pinned
+`shale install.shale`, run from this checkout, builds it with the pinned
 Zig, found at `tools:zig-<version>/zig`, and installs it as
 `tools:zig-ast/bin/zig-ast`, where Shale's host looks. `SHALE_ZIG_AST`
 names another binary for one run, as Shale's tests do.
