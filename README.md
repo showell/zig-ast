@@ -1,22 +1,136 @@
 # zig-ast
 
-zig-ast reads a Zig file the way Zig's own tokenizer and parser
-(`std.zig`) read it, and answers Shale's host over a pipe. It is what
-Shale's Zig builtins stand on: `zig_decls`, `zig_tokens`, `zig_imports`,
-`zig_rename`, `zig_renames` and `zig_move`. Shale's host checks a call's
-arguments, reads the files, sends them here, and acts on the answer: the
-values, the stops, the step charges, and the edits, which it writes through
-its own `edit`. zig-ast writes no file.
+**zig-ast reads Zig source the way Zig's own tokenizer and parser do, and
+answers questions about it over a pipe: its tokens, its declarations, its
+imports, and the exact edits to rename a name or move a declaration to
+another file.**
 
-[Shale](https://github.com/showell/shale) is a small scripting language
-for working on code; zig-ast grew up inside its repo and moved here on
-2026-11-18. Its earlier history is there (`git log --follow` on Shale's
-`legacy_zig/src/shale_zig_wire.zig` and the old `tools/zig_ast/`).
+It is built on `std.zig`, the tokenizer and parser the Zig compiler itself
+uses, so it never disagrees with Zig about what the code says: a comment or
+a string is never a use, `a.b` is told from `b`, and a name shadowed in one
+scope is left alone in another. That is what a lint, a refactoring tool or a
+codemod needs, and what a regex can't give.
 
-This repository is self-contained. Its one outside dependency is zig-webbox (its `src/zig_refs.zig` reads a file's
-`@import`s), pinned in `build.zig.zon`.
+It reads one file at a time and needs nothing else: not the build around it,
+not its dependencies, not code that compiles. zig-ast writes no file; it
+answers with the edits, and the caller applies them.
 
-## What is here
+It is one program, `zig-ast --serve`, that a tool starts once and keeps for
+many questions. The protocol is plain lines of tab-separated fields, so any
+language can drive it.
+
+## An example
+
+A two-import file, asked for its imports. The request is one frame: its
+length, a newline, then the body. The body is the command, then `src` and the
+source's byte count, then the source:
+
+    101
+    imports
+    src	85
+    const std = @import("std");
+    const wire = @import("wire.zig");
+
+    pub fn main() void {}
+
+zig-ast's whole answer:
+
+    zig-ast serve 1 0.17.1+patched.3
+    52
+    work	38
+    i	import	std	std	1
+    i	import	wire.zig	wire	2
+
+The first line, written once when it starts, names the wire format (1) and
+the Zig whose parser it carries. Then each answer is a frame the same way: a
+length, then lines. `work 38` is what the request cost, for a caller that
+budgets. Each `i` line is one import: its kind, the target, the name it is
+bound to, and its line.
+
+## The commands
+
+- **`tokens`**: every token, as Zig's tokenizer sees it, in fixed-width
+  binary records (tag, start, end, line), optionally only one tag.
+- **`decls`**: each declaration, its kind, name, visibility, linkage and
+  span, the comment above it, and the names it uses and reaches; optionally
+  inside one container.
+- **`imports`**: each `@import`, as above.
+- **`rename`**: the edits that rename one or more names, in a line range or
+  a container if asked, with the count of uses left in comments.
+- **`move`**: the edits that move declarations from one file to another,
+  qualifying the uses left behind, making a moved name `pub` where needed,
+  and naming any import the destination now needs.
+
+`main.zig`'s header gives each command's request lines and answer events in
+full.
+
+## The wire
+
+- zig-ast first writes one line, `zig-ast serve <format> <zig version>`.
+  The format is `wire.zig`'s `format`, 1 today. A change a reader must know
+  about gets a new number, so a caller checks it before trusting an answer.
+- Then each request is a frame, `<length>\n` and that many bytes, and each
+  answer is a frame the same way.
+- A frame's body is lines of fields joined by a tab, each field escaped
+  (`\\`, `\t`, `\n`, `\r`).
+- A request's first line is its command. A line `src<TAB><n>` is followed
+  by n raw bytes, a source file, and a newline.
+- An answer is events, read in order: `work <n>` charges n steps, a refusal
+  is its own word (`parse_error <line> <tag>`, `invalid <line>`, and the
+  others `main.zig`'s header lists), and then the values.
+- A request it can't read is answered `bad <why>`.
+
+`wire.zig` is the format's one home.
+
+## The pin: one Zig
+
+zig-ast reads Zig with the parser of the Zig it is built with, so the pin is
+the Zig whose syntax it knows. `zig-version` names it: a patched 0.17.1,
+from [patched-zig-compiler](https://github.com/showell/patched-zig-compiler).
+Code using syntax that Zig hasn't got yet gets a `parse_error`, never a
+guess.
+
+## Building, testing and installing
+
+```sh
+zig build          # zig-out/bin/zig-ast, always ReleaseSafe
+zig build test     # the format, then the tests
+```
+
+Its one outside dependency is
+[zig-webbox](https://github.com/showell/zig-webbox) (its `src/zig_refs.zig`
+reads a file's `@import`s), pinned by commit in `build.zig.zon`.
+
+The tests hold the reader, the planner and the mover to fixtures and to a
+corpus of real Zig, read whole: this repository's own files and zig-webbox's
+`src/`. A rename there and back, or a move there and back, must give the
+file it began with, and the two must agree on what is a use.
+
+## How Shale uses it
+
+[Shale](https://github.com/showell/shale) is a small scripting language for
+working on code, and its Zig builtins (`zig_decls`, `zig_tokens`,
+`zig_imports`, `zig_rename`, `zig_renames` and `zig_move`) stand on zig-ast.
+Shale's host starts `zig-ast --serve` at a run's first Zig call and keeps it
+for the run. It checks a call's arguments, reads the files, sends them, and
+acts on the answer: the values, the stops, the step charges, and the edits,
+which it writes through its own `edit`, so they can be undone. The C side of
+the wire is Shale's `c/host/zig_wire.c` and `c/host/zig_ast.c`. Shale's
+cookbook has recipes for Zig codebases built on these builtins
+([cookbook/zig](https://github.com/showell/shale/tree/master/cookbook/zig)).
+
+With Shale, `shale install.shale` in this checkout builds it with the pinned
+Zig, found at `tools:zig-<version>/zig`, and installs it as
+`tools:zig-ast/bin/zig-ast`, where Shale's host looks. `SHALE_ZIG_AST` names
+another binary for one run, as Shale's tests do.
+
+## History
+
+zig-ast grew up inside Shale's repository and moved here on 2026-11-18,
+carrying the history of its own folder. Its earlier history is in Shale
+(`git log --follow` on Shale's `legacy_zig/src/shale_zig_wire.zig`).
+
+## Files
 
 | file | what it holds |
 |---|---|
@@ -29,49 +143,6 @@ This repository is self-contained. Its one outside dependency is zig-webbox (its
 | `install.shale` | builds it and installs it where Shale's host looks |
 | `zig-version` | the Zig it is built with |
 
-## The wire
+## License
 
-Shale's host starts `zig-ast --serve` at a run's first Zig call and keeps
-it for the whole run. The other side is C: `c/host/zig_wire.c` and
-`c/host/zig_ast.c` in Shale's repo, held to `wire.zig`.
-
-- zig-ast first writes one line, `zig-ast serve <format> <zig version>`.
-  The format is `wire.zig`'s `format`, 1 today; a change a reader must know
-  of is a new number.
-- Then each request is a frame, `<length>\n` and that many bytes, and each
-  answer is a frame the same way.
-- A frame's body is lines of fields joined by a tab, each field escaped
-  (`\\`, `\t`, `\n`, `\r`).
-- A request's first line is its command: `tokens`, `decls`, `imports`,
-  `rename` or `move`. A line `src<TAB><n>` is followed by n raw bytes, a
-  source file, and a newline.
-- An answer is events, read in order: `work <n>` charges n steps, a
-  refusal is its own word (`parse_error <line> <tag>`, `invalid <line>`,
-  and the others `main.zig`'s header lists), and then the values.
-  `tokens` answers with a block, `tb<TAB><n>` and n records of 13 bytes
-  (the tag's number, the start, the end and the line, little-endian).
-- A request it cannot read is answered `bad <why>`, and the host stops.
-
-`main.zig`'s header gives each command's request lines and answer events in
-full.
-
-## Building, testing and installing
-
-It builds with the Zig that `zig-version` names (a patched 0.17.1). The
-tree it reads is the building Zig's, so the pin is the Zig whose syntax it
-knows.
-
-```sh
-zig build          # zig-out/bin/zig-ast, always ReleaseSafe
-zig build test     # the format, then the tests
-```
-
-The tests hold the reader, the planner and the mover to fixtures and to a
-corpus of real Zig, read whole: this folder's own files and zig-webbox's
-`src/`. A rename there and back, or a move there and back, must give the
-file it began with, and the two must agree on what is a use.
-
-`shale install.shale`, run from this checkout, builds it with the pinned
-Zig, found at `tools:zig-<version>/zig`, and installs it as
-`tools:zig-ast/bin/zig-ast`, where Shale's host looks. `SHALE_ZIG_AST`
-names another binary for one run, as Shale's tests do.
+The Universal Permissive License 1.0 ([LICENSE](LICENSE)).
