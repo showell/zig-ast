@@ -6,24 +6,33 @@ imports, and the exact edits to rename a name or move a declaration to
 another file.**
 
 It is built on `std.zig`, the tokenizer and parser the Zig compiler itself
-uses, so it never disagrees with Zig about what the code says: a comment or
-a string is never a use, `a.b` is told from `b`, and a name shadowed in one
-scope is left alone in another. That is what a lint, a refactoring tool or a
-codemod needs, and what a regex can't give.
+uses, so it agrees with Zig about what the code says: a use is a use in the
+code, outside comments and strings; `a.b` is told from `b`; and a name
+shadowed in one scope keeps its own uses. That is what a lint, a
+refactoring tool or a codemod needs, and what a regex only approximates.
 
-It reads one file at a time and needs nothing else: not the build around it,
-not its dependencies, not code that compiles. zig-ast writes no file; it
-answers with the edits, and the caller applies them.
+It reads one file at a time, on its own, so a file of a half-finished
+refactor works as well as one that compiles. The caller
+writes every file: zig-ast answers with the edits, and the caller applies
+them.
 
-It is one program, `zig-ast --serve`, that a tool starts once and keeps for
-many questions. The protocol is plain lines of tab-separated fields, so any
-language can drive it.
+## Frames, and why
+
+zig-ast is one long-running program, `zig-ast --serve`, that a tool starts
+once and keeps for many questions, talking over stdin and stdout. Every
+message each way is a **frame**: its length in bytes on a line of its own,
+then exactly that many bytes. A request carries whole source files, and
+those hold newlines, tabs and any other byte, so a length is the simplest
+way for a reader to take them raw: it reads the count, then reads exactly
+that many bytes, and the source arrives byte for byte as written. Inside a frame,
+the fields are plain lines of tab-separated text, so any language can drive
+it.
 
 ## An example
 
-A two-import file, asked for its imports. The request is one frame: its
-length, a newline, then the body. The body is the command, then `src` and the
-source's byte count, then the source:
+A two-import file, asked for its imports. The request is one frame: `101`,
+its length, then the body. The body is the command, then `src` with the
+source's length in bytes, then the source itself:
 
     101
     imports
@@ -78,17 +87,16 @@ full.
 - An answer is events, read in order: `work <n>` charges n steps, a refusal
   is its own word (`parse_error <line> <tag>`, `invalid <line>`, and the
   others `main.zig`'s header lists), and then the values.
-- A request it can't read is answered `bad <why>`.
+- A malformed request is answered `bad <why>`.
 
 `wire.zig` is the format's one home.
 
 ## The pin: one Zig
 
-zig-ast reads Zig with the parser of the Zig it is built with, so the pin is
-the Zig whose syntax it knows. `zig-version` names it: a patched 0.17.1,
-from [patched-zig-compiler](https://github.com/showell/patched-zig-compiler).
-Code using syntax that Zig hasn't got yet gets a `parse_error`, never a
-guess.
+zig-ast reads Zig with the parser of the Zig it is built with, so its pin
+sets the syntax it reads. `zig-version` names it: a patched 0.17.1, from
+[patched-zig-compiler](https://github.com/showell/patched-zig-compiler).
+Code using syntax newer than that pin gets a `parse_error` naming its line.
 
 ## Building, testing and installing
 
