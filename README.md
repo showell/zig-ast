@@ -5,7 +5,7 @@ answers questions about it over a pipe: its tokens, its declarations, its
 imports, and the exact edits to rename a name or move a declaration to
 another file.**
 
-The code here was written by AI coding agents (Claude), with human supervision.
+The code here was written by AI coding agents (Claude), with human supervision. Point an agent at `main.zig`'s header and `wire.zig` to drive it from a tool of your own.
 
 It is built on `std.zig`, the tokenizer and parser the Zig compiler itself
 uses, so it agrees with Zig about what the code says: a use is a use in the
@@ -78,7 +78,7 @@ full.
 ## The wire
 
 - zig-ast first writes one line, `zig-ast serve <format> <zig version>`.
-  The format is `wire.zig`'s `format`, 1 today. A change a reader must know
+  The format is `wire.zig`'s `format`. A change a reader must know
   about gets a new number, so a caller checks it before trusting an answer.
 - Then each request is a frame, `<length>\n` and that many bytes, and each
   answer is a frame the same way.
@@ -96,7 +96,7 @@ full.
 ## The pin: one Zig
 
 zig-ast reads Zig with the parser of the Zig it is built with, so its pin
-sets the syntax it reads. `zig-version` names it: a patched 0.17.1, from
+sets the syntax it reads. `zig-version` names it, a patched Zig from
 [patched-zig-compiler](https://github.com/showell/patched-zig-compiler).
 Code using syntax newer than that pin gets a `parse_error` naming its line.
 
@@ -133,25 +133,6 @@ With Shale, `shale install.shale` in this checkout builds it with the pinned
 Zig, found at `tools:zig-<version>/zig`, and installs it as
 `tools:zig-ast/bin/zig-ast`, where Shale's host looks. `SHALE_ZIG_AST` names
 another binary for one run, as Shale's tests do.
-
-## History
-
-zig-ast grew up inside Shale's repository and moved here on 2026-11-18,
-carrying the history of its own folder. Its earlier history is in Shale
-(`git log --follow` on Shale's `legacy_zig/src/shale_zig_wire.zig`).
-
-## Files
-
-| file | what it holds |
-|---|---|
-| `main.zig` | the server: each command, its request and its answer's events |
-| `wire.zig` | the wire format, its one home |
-| `zig_ast.zig` | the reader: declarations, tokens, identifiers |
-| `plan.zig` | the rename planner |
-| `zig_move.zig` | the mover |
-| `zig_ast_test.zig` | the tests |
-| `install.shale` | builds it and installs it where Shale's host looks |
-| `zig-version` | the Zig it is built with |
 
 ## License
 
