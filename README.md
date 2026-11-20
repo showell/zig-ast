@@ -5,6 +5,8 @@ answers questions about it over a pipe: its tokens, its declarations, its
 imports, and the exact edits to rename a name or move a declaration to
 another file.**
 
+The code here was written by AI coding agents (Claude), with human supervision.
+
 It is built on `std.zig`, the tokenizer and parser the Zig compiler itself
 uses, so it agrees with Zig about what the code says: a use is a use in the
 code, outside comments and strings; `a.b` is told from `b`; and a name
